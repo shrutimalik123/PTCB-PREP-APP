@@ -3,6 +3,9 @@
 </div>
 
 # THe deployed app is here: https://pharmtechtutor-741526990926.us-west1.run.app
+
+This website has flashcards and quiz to prepare for top 200 drugs for PTCB ( Pharmacy Tech) exam
+
 # Run and deploy your AI Studio app
 
 This contains everything you need to run your app locally.
