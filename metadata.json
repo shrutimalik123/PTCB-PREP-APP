@@ -1,0 +1,5 @@
+{
+  "name": "PharmTechTutor",
+  "description": "An AI-powered study assistant for the PTCB Top 200 Drugs exam, featuring Flashcards, Quizzes, and detailed Study Sheets.",
+  "requestFramePermissions": []
+}
