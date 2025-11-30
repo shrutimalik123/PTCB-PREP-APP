@@ -1,38 +1,98 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { generateQuizQuestion } from '../services/geminiService';
 import { QuizQuestion } from '../types';
-import { CheckCircle2, XCircle, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, ArrowRight, Loader2, Trophy } from 'lucide-react';
 
-const QuizMode: React.FC = () => {
+interface QuizModeProps {
+  getNextDrug: () => string | null;
+}
+
+const QuizMode: React.FC<QuizModeProps> = ({ getNextDrug }) => {
   const [questionData, setQuestionData] = useState<QuizQuestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streak, setStreak] = useState(0);
+  const [isFinished, setIsFinished] = useState(false);
 
-  const fetchQuestion = useCallback(async () => {
+  const nextQuestionPromise = useRef<Promise<QuizQuestion> | null>(null);
+
+  const fetchQuestionForDrug = async (drug: string): Promise<QuizQuestion> => {
+    return await generateQuizQuestion(drug);
+  };
+
+  const loadInitial = useCallback(async () => {
     setLoading(true);
-    setError(null);
-    setSelectedOption(null);
-    setIsCorrect(null);
-    
+    const drug1 = getNextDrug();
+    if (!drug1) {
+      setIsFinished(true);
+      setLoading(false);
+      return;
+    }
+
+    const drug2 = getNextDrug();
+    if (drug2) {
+      nextQuestionPromise.current = fetchQuestionForDrug(drug2);
+    } else {
+      nextQuestionPromise.current = null;
+    }
+
     try {
-      const data = await generateQuizQuestion();
-      setQuestionData(data);
-    } catch (err) {
-      setError("Unable to generate quiz question.");
+      const q1 = await fetchQuestionForDrug(drug1);
+      setQuestionData(q1);
+    } catch (e) {
+      setError("Failed to load quiz.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getNextDrug]);
 
   useEffect(() => {
-    fetchQuestion();
-  }, [fetchQuestion]);
+    loadInitial();
+    return () => { nextQuestionPromise.current = null; };
+  }, [loadInitial]);
+
+  const handleNext = async () => {
+    setSelectedOption(null);
+    setIsCorrect(null);
+
+    if (!nextQuestionPromise.current) {
+      const drug = getNextDrug();
+      if (!drug) {
+        setIsFinished(true);
+        return;
+      }
+      setLoading(true);
+      try {
+        const q = await fetchQuestionForDrug(drug);
+        setQuestionData(q);
+      } catch (e) { setError("Error loading question"); }
+      finally { setLoading(false); }
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const nextQ = await nextQuestionPromise.current;
+      setQuestionData(nextQ);
+
+      const nextDrug = getNextDrug();
+      if (nextDrug) {
+        nextQuestionPromise.current = fetchQuestionForDrug(nextDrug);
+      } else {
+        nextQuestionPromise.current = null;
+      }
+    } catch (e) {
+      setError("Failed to load next question");
+      nextQuestionPromise.current = null;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOptionSelect = (option: string) => {
-    if (selectedOption) return; // Prevent changing answer
+    if (selectedOption) return;
 
     setSelectedOption(option);
     const correct = option === questionData?.correctAnswer;
@@ -44,6 +104,28 @@ const QuizMode: React.FC = () => {
       setStreak(0);
     }
   };
+
+  if (isFinished) {
+    return (
+      <div className="w-full max-w-xl mx-auto px-4 py-16 text-center">
+        <Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-6" />
+        <h2 className="text-3xl font-bold text-slate-800 mb-4">Quiz Complete!</h2>
+        <p className="text-slate-600 mb-8">You have practiced all available drugs.</p>
+        <div className="inline-block bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
+          <p className="text-sm text-slate-500 uppercase font-bold">Final Streak</p>
+          <p className="text-4xl font-bold text-blue-600">{streak}</p>
+        </div>
+        <div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+          >
+            Restart
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto px-4 py-8">
@@ -57,16 +139,16 @@ const QuizMode: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
+      {loading && !questionData ? (
         <div className="w-full h-64 bg-white rounded-2xl border border-slate-200 flex flex-col items-center justify-center">
           <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-3" />
-          <p className="text-slate-500">Preparing question...</p>
+          <p className="text-slate-500">Preparing next question...</p>
         </div>
       ) : error ? (
          <div className="w-full bg-red-50 rounded-xl p-6 text-center border border-red-100">
             <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
             <p className="text-red-700 mb-4">{error}</p>
-            <button onClick={fetchQuestion} className="text-red-700 font-bold underline">Retry</button>
+            <button onClick={handleNext} className="text-red-700 font-bold underline">Skip</button>
          </div>
       ) : questionData ? (
         <div className="space-y-6">
@@ -118,10 +200,10 @@ const QuizMode: React.FC = () => {
               
               <div className="mt-6 flex justify-end">
                 <button
-                  onClick={fetchQuestion}
+                  onClick={handleNext}
                   className="flex items-center gap-2 px-6 py-3 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors font-medium shadow-lg shadow-slate-200"
                 >
-                  Next Question <ArrowRight className="w-4 h-4" />
+                  {loading ? 'Loading...' : <>Next Question <ArrowRight className="w-4 h-4" /></>}
                 </button>
               </div>
             </div>

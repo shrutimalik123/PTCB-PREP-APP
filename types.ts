@@ -11,6 +11,7 @@ export interface FlashcardData {
   answer: string;
   drugClass: string;
   indication: string;
+  genericName: string;
 }
 
 export interface QuizQuestion {
@@ -18,6 +19,7 @@ export interface QuizQuestion {
   options: string[];
   correctAnswer: string;
   explanation: string;
+  subjectDrug: string;
 }
 
 export interface DrugDetails {

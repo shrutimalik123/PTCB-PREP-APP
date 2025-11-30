@@ -2,47 +2,50 @@ import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { FlashcardData, QuizQuestion, DrugDetails } from "../types";
 
 const apiKey = process.env.API_KEY;
-// Initialize Gemini client only if API key is present to avoid runtime crashes on init
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const MODEL_NAME = 'gemini-2.5-flash';
 
 const SYSTEM_INSTRUCTION = `
-You are PharmTechTutor, an expert study assistant for the PTCB (Pharmacy Technician Certification Board) exam.
-Your primary knowledge base is the "Top 200 Drugs" list commonly used for PTCB preparation.
-Ensure all drug information, indications, and classes are medically accurate and adhere to standard pharmacy technician educational materials.
-Do NOT provide medical advice or specific dosing instructions for patients. Focus on exam preparation facts.
+You are PharmTechTutor, an expert study assistant for the PTCB exam.
+Focus on the Top 200 Drugs list.
+Ensure all medical facts (Indication, Class, Brand/Generic map) are accurate.
+Do NOT provide medical advice.
 `;
 
-export const generateFlashcard = async (): Promise<FlashcardData> => {
+export const generateFlashcard = async (targetDrug: string): Promise<FlashcardData> => {
   if (!ai) throw new Error("API Key not found");
 
   const schema: Schema = {
     type: Type.OBJECT,
     properties: {
-      term: { type: Type.STRING, description: "The name presented to the student (either Brand or Generic)" },
+      term: { type: Type.STRING, description: "The name presented to the student (Randomly Brand or Generic)" },
       type: { type: Type.STRING, enum: ["Brand", "Generic"], description: "Whether the term is Brand or Generic" },
-      answer: { type: Type.STRING, description: "The corresponding pair (if term is Brand, this is Generic, and vice versa)" },
-      drugClass: { type: Type.STRING, description: "The pharmacological or therapeutic class" },
-      indication: { type: Type.STRING, description: "The primary FDA-approved indication" },
+      answer: { type: Type.STRING, description: "The corresponding pair name" },
+      drugClass: { type: Type.STRING, description: "Pharmacological/Therapeutic class" },
+      indication: { type: Type.STRING, description: "Primary FDA indication (short)" },
+      genericName: { type: Type.STRING, description: "The Generic name (should match the target drug)" },
     },
-    required: ["term", "type", "answer", "drugClass", "indication"],
+    required: ["term", "type", "answer", "drugClass", "indication", "genericName"],
   };
 
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: "Generate a flashcard for a random drug from the Top 200 PTCB drug list. Randomly select whether to show the Brand or Generic name as the term.",
+      contents: `Create a study flashcard for the drug "${targetDrug}". 
+      Randomly choose to show either the Brand Name or Generic Name as the 'term'.
+      The 'answer' should be the other name.
+      Keep indications concise (2-4 words).`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: schema,
-        temperature: 1.0, // Higher temperature for randomness
+        temperature: 0.7,
       },
     });
 
     const text = response.text;
-    if (!text) throw new Error("No response from AI");
+    if (!text) throw new Error("No response");
     return JSON.parse(text) as FlashcardData;
   } catch (error) {
     console.error("Error generating flashcard:", error);
@@ -50,38 +53,41 @@ export const generateFlashcard = async (): Promise<FlashcardData> => {
   }
 };
 
-export const generateQuizQuestion = async (): Promise<QuizQuestion> => {
+export const generateQuizQuestion = async (targetDrug: string): Promise<QuizQuestion> => {
   if (!ai) throw new Error("API Key not found");
 
   const schema: Schema = {
     type: Type.OBJECT,
     properties: {
-      question: { type: Type.STRING, description: "The multiple choice question text" },
+      question: { type: Type.STRING, description: "Multiple choice question" },
       options: { 
         type: Type.ARRAY, 
         items: { type: Type.STRING },
-        description: "An array of 4 possible answers" 
+        description: "4 answer options" 
       },
-      correctAnswer: { type: Type.STRING, description: "The correct answer string, must match one of the options exactly" },
-      explanation: { type: Type.STRING, description: "A brief explanation of why the answer is correct" },
+      correctAnswer: { type: Type.STRING, description: "The correct option" },
+      explanation: { type: Type.STRING, description: "Why it is correct" },
+      subjectDrug: { type: Type.STRING, description: "The subject drug generic name" },
     },
-    required: ["question", "options", "correctAnswer", "explanation"],
+    required: ["question", "options", "correctAnswer", "explanation", "subjectDrug"],
   };
 
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: "Generate a multiple-choice question suitable for the PTCB exam regarding a Top 200 drug. The question can be about Brand/Generic matching, Drug Class, or Indication.",
+      contents: `Create a multiple-choice question about "${targetDrug}".
+      Can be about its Brand/Generic name, Drug Class, or Indication.
+      Ensure one answer is clearly correct and 3 are plausible distractors (real drugs or classes).`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
         responseSchema: schema,
-        temperature: 0.9,
+        temperature: 0.7,
       },
     });
 
     const text = response.text;
-    if (!text) throw new Error("No response from AI");
+    if (!text) throw new Error("No response");
     return JSON.parse(text) as QuizQuestion;
   } catch (error) {
     console.error("Error generating quiz:", error);
@@ -99,12 +105,8 @@ export const getDrugDetails = async (query: string): Promise<DrugDetails> => {
       genericName: { type: Type.STRING },
       drugClass: { type: Type.STRING },
       indication: { type: Type.STRING },
-      sideEffects: { 
-        type: Type.ARRAY, 
-        items: { type: Type.STRING },
-        description: "List of 3-5 common side effects"
-      },
-      schedule: { type: Type.STRING, description: "DEA Schedule (e.g., 'Schedule II', 'Legend/Rx Only', 'OTC')" },
+      sideEffects: { type: Type.ARRAY, items: { type: Type.STRING } },
+      schedule: { type: Type.STRING },
     },
     required: ["brandName", "genericName", "drugClass", "indication", "sideEffects", "schedule"],
   };
@@ -112,7 +114,7 @@ export const getDrugDetails = async (query: string): Promise<DrugDetails> => {
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: `Provide study details for the drug matching the search term: "${query}". If the term is misspelled, infer the closest Top 200 drug.`,
+      contents: `Provide details for "${query}". If misspelled, infer closest Top 200 drug.`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
@@ -121,10 +123,9 @@ export const getDrugDetails = async (query: string): Promise<DrugDetails> => {
     });
 
     const text = response.text;
-    if (!text) throw new Error("No response from AI");
+    if (!text) throw new Error("No response");
     return JSON.parse(text) as DrugDetails;
   } catch (error) {
-    console.error("Error fetching drug details:", error);
     throw error;
   }
 };
